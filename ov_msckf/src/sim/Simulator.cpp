@@ -24,6 +24,7 @@
 #include "cam/CamBase.h"
 #include "cam/CamEqui.h"
 #include "cam/CamRadtan.h"
+#include "cam/CamEUCM.h"
 #include "sim/BsplineSE3.h"
 #include "state/State.h"
 #include "utils/colors.h"
@@ -48,8 +49,12 @@ Simulator::Simulator(VioManagerOptions &params_) {
   this->params = params_;
   params.camera_intrinsics.clear();
   for (auto const &tmp : params_.camera_intrinsics) {
-    auto tmp_cast = std::dynamic_pointer_cast<ov_core::CamEqui>(tmp.second);
-    if (tmp_cast != nullptr) {
+    auto tmp_cast_equi = std::dynamic_pointer_cast<ov_core::CamEqui>(tmp.second);
+    auto tmp_cast_eucm = std::dynamic_pointer_cast<ov_core::CamEUCM>(tmp.second);
+    if (tmp_cast_eucm != nullptr) {
+      params.camera_intrinsics.insert({tmp.first, std::make_shared<ov_core::CamEUCM>(tmp.second->w(), tmp.second->h())});
+      params.camera_intrinsics.at(tmp.first)->set_value(params_.camera_intrinsics.at(tmp.first)->get_value());
+    } else if (tmp_cast_equi != nullptr) {
       params.camera_intrinsics.insert({tmp.first, std::make_shared<ov_core::CamEqui>(tmp.second->w(), tmp.second->h())});
       params.camera_intrinsics.at(tmp.first)->set_value(params_.camera_intrinsics.at(tmp.first)->get_value());
     } else {
@@ -225,6 +230,8 @@ void Simulator::perturb_parameters(std::mt19937 gen_state, VioManagerOptions &pa
     for (int r = 4; r < 8; r++) {
       intrinsics(r) += 0.005 * w(gen_state);
     }
+    intrinsics(8) += 0.001 * w(gen_state);
+    intrinsics(9) += 0.001 * w(gen_state);
     params_.camera_intrinsics.at(i)->set_value(intrinsics);
 
     // Our camera extrinsics transform (orientation)
@@ -479,8 +486,10 @@ std::vector<std::pair<size_t, Eigen::VectorXf>> Simulator::project_pointcloud(co
       continue;
 
     // Project to normalized coordinates
-    Eigen::Vector2f uv_norm;
-    uv_norm << (float)(p_FinC(0) / p_FinC(2)), (float)(p_FinC(1) / p_FinC(2));
+    // Eigen::Vector2f uv_norm;
+    // uv_norm << (float)(p_FinC(0) / p_FinC(2)), (float)(p_FinC(1) / p_FinC(2));
+    Eigen::Vector2f uv_norm(static_cast<float>(p_FinC(0) / p_FinC(2)),
+                            static_cast<float>(p_FinC(1) / p_FinC(2)));
 
     // Distort the normalized coordinates
     Eigen::Vector2f uv_dist = camera->distort_f(uv_norm);
@@ -521,7 +530,8 @@ void Simulator::generate_points(const Eigen::Matrix3d &R_GtoI, const Eigen::Vect
     double v_dist = gen_v(gen_state_init);
 
     // Convert to opencv format
-    cv::Point2f uv_dist((float)u_dist, (float)v_dist);
+    // cv::Point2f uv_dist((float)u_dist, (float)v_dist);
+    cv::Point2f uv_dist(static_cast<float>(u_dist), static_cast<float>(v_dist));
 
     // Undistort this point to our normalized coordinates
     cv::Point2f uv_norm = camera->undistort_cv(uv_dist);

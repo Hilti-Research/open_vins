@@ -24,6 +24,7 @@
 #include "cam/CamBase.h"
 #include "cam/CamEqui.h"
 #include "cam/CamRadtan.h"
+#include "cam/CamEUCM.h"
 #include "sim/BsplineSE3.h"
 #include "utils/colors.h"
 #include "utils/dataset_reader.h"
@@ -47,8 +48,12 @@ SimulatorInit::SimulatorInit(InertialInitializerOptions &params_) {
   this->params = params_;
   params.camera_intrinsics.clear();
   for (auto const &tmp : params_.camera_intrinsics) {
-    auto tmp_cast = std::dynamic_pointer_cast<ov_core::CamEqui>(tmp.second);
-    if (tmp_cast != nullptr) {
+    auto tmp_cast_equi = std::dynamic_pointer_cast<ov_core::CamEqui>(tmp.second);
+    auto tmp_cast_eucm = std::dynamic_pointer_cast<ov_core::CamEUCM>(tmp.second);
+    if (tmp_cast_eucm != nullptr) {
+      params.camera_intrinsics.insert({tmp.first, std::make_shared<ov_core::CamEUCM>(tmp.second->w(), tmp.second->h())});
+      params.camera_intrinsics.at(tmp.first)->set_value(params_.camera_intrinsics.at(tmp.first)->get_value());
+    } else if (tmp_cast_equi != nullptr) {
       params.camera_intrinsics.insert({tmp.first, std::make_shared<ov_core::CamEqui>(tmp.second->w(), tmp.second->h())});
       params.camera_intrinsics.at(tmp.first)->set_value(params_.camera_intrinsics.at(tmp.first)->get_value());
     } else {
@@ -438,8 +443,8 @@ SimulatorInit::project_pointcloud(const Eigen::Matrix3d &R_GtoI, const Eigen::Ve
       continue;
 
     // Project to normalized coordinates
-    Eigen::Vector2f uv_norm;
-    uv_norm << (float)(p_FinC(0) / p_FinC(2)), (float)(p_FinC(1) / p_FinC(2));
+    Eigen::Vector2f uv_norm(static_cast<float>(p_FinC(0) / p_FinC(2)),
+                            static_cast<float>(p_FinC(1) / p_FinC(2)));
 
     // Distort the normalized coordinates
     Eigen::Vector2f uv_dist;
@@ -481,11 +486,12 @@ void SimulatorInit::generate_points(const Eigen::Matrix3d &R_GtoI, const Eigen::
     double v_dist = gen_v(gen_state_init);
 
     // Convert to opencv format
-    cv::Point2f uv_dist((float)u_dist, (float)v_dist);
+    cv::Point2f uv_dist(static_cast<float>(u_dist), static_cast<float>(v_dist));
 
     // Undistort this point to our normalized coordinates
     cv::Point2f uv_norm;
     uv_norm = camera->undistort_cv(uv_dist);
+    //--if (std::abs(uv_norm.x) > 500.1 || std::abs(uv_norm.y) > 500.1) continue;
 
     // Generate a random depth
     std::uniform_real_distribution<double> gen_depth(params.sim_min_feature_gen_distance, params.sim_max_feature_gen_distance);
